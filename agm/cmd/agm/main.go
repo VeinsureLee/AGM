@@ -20,6 +20,7 @@ import (
 
 	"github.com/agm-project/agm-mvp/internal/hook"
 	"github.com/agm-project/agm-mvp/internal/id"
+	"github.com/agm-project/agm-mvp/internal/recorder"
 	"github.com/agm-project/agm-mvp/internal/store"
 	"github.com/agm-project/agm-mvp/internal/watcher"
 )
@@ -208,6 +209,7 @@ func newWatchCmd() *cobra.Command {
 				return err
 			}
 			defer jsonl.Close()
+			rec := recorder.New(s, jsonl)
 
 			onChange := func(fc watcher.FileChange) {
 				// Resolve active session (may be empty).
@@ -226,7 +228,7 @@ func newWatchCmd() *cobra.Command {
 					"path": fc.RelPath,
 					"op":   string(fc.Op),
 				})
-				_, _ = s.InsertEvent(store.Event{
+				_, _ = rec.RecordEvent(store.Event{
 					SessionID: sessID,
 					Type:      "FileChange",
 					Timestamp: time.Now(),
@@ -284,11 +286,21 @@ func newSessionStartCmd() *cobra.Command {
 		Short: "Register a new session; prints the session id to stdout",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, _, err := openStore()
+			s, agmdir, err := openStore()
 			if err != nil {
 				return err
 			}
 			defer s.Close()
+
+			jsonl, err := openJSONL(agmdir)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "warn: could not open events.jsonl:", err)
+				jsonl = nil
+			}
+			if jsonl != nil {
+				defer jsonl.Close()
+			}
+			rec := recorder.New(s, jsonl)
 
 			cwd, _ := os.Getwd()
 			sess := store.Session{
@@ -302,16 +314,18 @@ func newSessionStartCmd() *cobra.Command {
 			if err := s.CreateSession(sess); err != nil {
 				return err
 			}
-			// Log a synthetic SessionStart event so `agm events` tells a
-			// consistent story even if no Claude hook is wired up yet.
+			// Log a CLI-side SessionRegistered event. This is distinct from
+			// the Claude Code "SessionStart" hook, which fires separately when
+			// the agent actually starts — mixing the two would produce a
+			// duplicate SessionStart per session.
 			payload, _ := json.Marshal(map[string]string{
 				"name":       sess.Name,
 				"agent_type": sess.AgentType,
 				"cwd":        sess.CWD,
 			})
-			_, _ = s.InsertEvent(store.Event{
+			_, _ = rec.RecordEvent(store.Event{
 				SessionID: sess.ID,
-				Type:      "SessionStart",
+				Type:      "SessionRegistered",
 				Timestamp: sess.StartedAt,
 				Payload:   string(payload),
 			})
@@ -329,17 +343,30 @@ func newSessionStopCmd() *cobra.Command {
 		Short: "Mark a session as stopped",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, _, err := openStore()
+			s, agmdir, err := openStore()
 			if err != nil {
 				return err
 			}
 			defer s.Close()
+
+			jsonl, err := openJSONL(agmdir)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "warn: could not open events.jsonl:", err)
+				jsonl = nil
+			}
+			if jsonl != nil {
+				defer jsonl.Close()
+			}
+			rec := recorder.New(s, jsonl)
+
 			if err := s.StopSession(args[0]); err != nil {
 				return err
 			}
-			_, _ = s.InsertEvent(store.Event{
+			// CLI-side SessionEnded event — distinct from the Claude "Stop"
+			// hook, same reasoning as SessionRegistered vs SessionStart.
+			_, _ = rec.RecordEvent(store.Event{
 				SessionID: args[0],
-				Type:      "Stop",
+				Type:      "SessionEnded",
 				Timestamp: time.Now(),
 				Payload:   `{"source":"cli"}`,
 			})
@@ -451,8 +478,8 @@ func newHookCmd() *cobra.Command {
 			}
 
 			h := &hook.Handler{
-				Store:       s,
-				JSONLWriter: jsonl,
+				Store:    s,
+				Recorder: recorder.New(s, jsonl),
 			}
 			rowID, sessID, err := h.Process(args[0], os.Stdin)
 			if err != nil {

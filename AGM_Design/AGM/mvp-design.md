@@ -136,7 +136,9 @@ CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT,                    -- 关联 session，FileChange 可能为 NULL
-    event_type TEXT NOT NULL,           -- SessionStart|UserPromptSubmit|PostToolUse|Stop|FileChange
+    event_type TEXT NOT NULL,           -- Claude hook: SessionStart|UserPromptSubmit|PostToolUse|Stop
+                                        -- CLI admin:   SessionRegistered|SessionEnded
+                                        -- Watcher:     FileChange
     timestamp INTEGER NOT NULL,         -- unix ms
     payload TEXT NOT NULL               -- JSON blob，原样保存
 );

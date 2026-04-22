@@ -1,9 +1,10 @@
 // Package hook handles Claude Code hook invocations.
 //
 // Flow: `agm hook <name>` reads stdin JSON, normalises it, finds a session id
-// (explicit → env var → latest running), writes one row to events + one line to
-// events.jsonl. The hook must not error-out the calling agent, so unreadable
-// JSON is preserved as {"_raw": "..."} rather than rejected.
+// (explicit → env var → latest running), and hands the event to the recorder
+// (which writes both SQLite and events.jsonl). The hook must not error-out
+// the calling agent, so unreadable JSON is preserved as {"_raw": "..."}
+// rather than rejected.
 package hook
 
 import (
@@ -13,17 +14,22 @@ import (
 	"os"
 	"time"
 
+	"github.com/agm-project/agm-mvp/internal/recorder"
 	"github.com/agm-project/agm-mvp/internal/store"
 )
 
 // Handler carries the dependencies needed to persist a hook event.
+//
+// Store is used for non-event ops (auto-creating a session row on a fresh
+// SessionStart, looking up the latest running session). Recorder is the
+// single write path for events themselves — see internal/recorder.
 type Handler struct {
-	Store       *store.Store
-	JSONLWriter io.Writer // append-only events.jsonl (nil = skip)
+	Store    *store.Store
+	Recorder *recorder.Recorder
 }
 
-// Process consumes stdin, determines session id, writes the event, returns the
-// row id and the (possibly synthesized) session id used.
+// Process consumes stdin, determines session id, records the event, returns
+// the row id and the (possibly synthesized) session id used.
 func (h *Handler) Process(hookName string, stdin io.Reader) (int64, string, error) {
 	if hookName == "" {
 		return 0, "", fmt.Errorf("hook name required")
@@ -38,20 +44,15 @@ func (h *Handler) Process(hookName string, stdin io.Reader) (int64, string, erro
 
 	sessionID := h.resolveSessionID(sessionHint)
 
-	now := time.Now()
 	ev := store.Event{
 		SessionID: sessionID,
 		Type:      hookName,
-		Timestamp: now,
+		Timestamp: time.Now(),
 		Payload:   payload,
 	}
-	id, err := h.Store.InsertEvent(ev)
+	id, err := h.Recorder.RecordEvent(ev)
 	if err != nil {
-		return 0, sessionID, fmt.Errorf("insert event: %w", err)
-	}
-
-	if h.JSONLWriter != nil {
-		_ = writeJSONLLine(h.JSONLWriter, id, ev)
+		return 0, sessionID, fmt.Errorf("record event: %w", err)
 	}
 
 	// SessionStart with no existing session row: auto-create one so later
@@ -124,26 +125,3 @@ func (h *Handler) tryAutoCreateSession(id, payload string) {
 	})
 }
 
-// writeJSONLLine appends one line to the JSONL writer.
-func writeJSONLLine(w io.Writer, eventID int64, ev store.Event) error {
-	line := map[string]any{
-		"id":         eventID,
-		"session_id": ev.SessionID,
-		"type":       ev.Type,
-		"timestamp":  ev.Timestamp.Format(time.RFC3339Nano),
-	}
-	// Embed payload as parsed JSON when it parses, else as a string.
-	var pl any
-	if err := json.Unmarshal([]byte(ev.Payload), &pl); err == nil {
-		line["payload"] = pl
-	} else {
-		line["payload"] = ev.Payload
-	}
-	b, err := json.Marshal(line)
-	if err != nil {
-		return err
-	}
-	b = append(b, '\n')
-	_, err = w.Write(b)
-	return err
-}

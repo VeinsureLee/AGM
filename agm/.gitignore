@@ -1,6 +1,7 @@
 # Go build artefacts
 /agm
 /agm.exe
+*.exe~
 /dist/
 
 # Local AGM state (never commit)
