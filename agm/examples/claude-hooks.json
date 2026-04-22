@@ -1,0 +1,17 @@
+{
+  "_comment": "Copy the contents of the 'hooks' block into ~/.claude/settings.json (or your project's .claude/settings.json). 'agm' must be on PATH.",
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "agm hook SessionStart"}]}
+    ],
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "agm hook UserPromptSubmit"}]}
+    ],
+    "PostToolUse": [
+      {"hooks": [{"type": "command", "command": "agm hook PostToolUse"}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "agm hook Stop"}]}
+    ]
+  }
+}

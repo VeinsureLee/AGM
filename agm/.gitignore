@@ -1,0 +1,17 @@
+# Go build artefacts
+/agm
+/agm.exe
+/dist/
+
+# Local AGM state (never commit)
+.agm/
+
+# Go workspace / module download cache (safety net)
+/vendor/
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

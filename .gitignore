@@ -1,0 +1,27 @@
+# Local tooling / per-user config
+.claude/
+.gstack/
+
+# Internal design & planning documents (not for publication)
+AGM_Design/AGM/AGM设计思考.md
+AGM_Design/AGM/立项方案-路线A.md
+AGM_Design/AGM/beta-plan.md
+AGM_Design/AGM/go-basics.md
+AGM_Design/Research/
+
+# Dev-time test artefacts left inside agm/ by `agm watch` smoke tests
+/agm/test.txt
+/agm/sub/
+/agm/subdir/
+/agm/tmp/
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
